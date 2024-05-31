@@ -2,7 +2,7 @@ import html
 import re
 
 import pandas as pd
-
+from src.utils.logger import logger
 
 def clean_text(text: str) -> str:
     """
@@ -36,7 +36,7 @@ def clean_text(text: str) -> str:
 import re
 
 
-def count_words(text):
+def count_words(text: str) -> int:
     """
     Count the number of words in the input text.
 
@@ -61,16 +61,24 @@ class DataPreprocessor:
 
     @staticmethod
     def _clean_text(df: pd.DataFrame) -> pd.DataFrame:
+        logger.info("Removing HTML, non ASCI etc")
         df['post'] = df['post'].apply(clean_text)
         return df
 
     @staticmethod
     def _count_words(df: pd.DataFrame) -> pd.DataFrame:
+        logger.info("Counting words")
         df['word_count'] = df['post'].apply(count_words)
         return df
 
     @classmethod
-    def preprocess(cls, df: pd.DataFrame):
+    def preprocess(cls, df: pd.DataFrame) -> pd.DataFrame:
+        logger.info("Preprocesssing data")
         df = cls._clean_text(df)
         df = cls._count_words(df)
         return df
+
+    @classmethod
+    def to_json(cls,df:pd.DataFrame,path ):
+        df=df.rename(columns={'post':'prompt','post_risk':'completion'})
+        df[['prompt', 'completion']].to_json(path, orient='records', lines=True)
