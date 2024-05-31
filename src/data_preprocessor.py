@@ -33,9 +33,6 @@ def clean_text(text: str) -> str:
     return text
 
 
-import re
-
-
 def count_words(text: str) -> int:
     """
     Count the number of words in the input text.
