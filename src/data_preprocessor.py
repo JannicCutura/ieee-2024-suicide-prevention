@@ -2,7 +2,9 @@ import html
 import re
 
 import pandas as pd
+
 from src.utils.logger import logger
+
 
 def clean_text(text: str) -> str:
     """
@@ -54,7 +56,23 @@ def count_words(text: str) -> int:
     # Return the word count
     return len(words)
 
+
 class DataPreprocessor:
+
+    @staticmethod
+    def _convert_to_one_token_answer(df: pd.DataFrame) -> pd.DataFrame:
+        shorting_map = {
+            'ideation': 'id',
+            'behavior': 'be',
+            'indicator': 'in',
+            'attempt': 'at',
+        }
+
+        if 'post_risk' in df.columns:
+            logger.info(f"Replacing cateogries with one token labels: {str(shorting_map)}")
+            df['post_risk'] = df['post_risk'].map(shorting_map)
+
+        return df
 
     @staticmethod
     def _clean_text(df: pd.DataFrame) -> pd.DataFrame:
@@ -73,9 +91,10 @@ class DataPreprocessor:
         logger.info("Preprocesssing data")
         df = cls._clean_text(df)
         df = cls._count_words(df)
+        df = cls._convert_to_one_token_answer(df)
         return df
 
     @classmethod
-    def to_json(cls,df:pd.DataFrame,path ):
-        df=df.rename(columns={'post':'prompt','post_risk':'completion'})
+    def to_json(cls, df: pd.DataFrame, path):
+        df = df.rename(columns={'post': 'prompt', 'post_risk': 'completion'})
         df[['prompt', 'completion']].to_json(path, orient='records', lines=True)
