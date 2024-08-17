@@ -1,11 +1,8 @@
 import os
-import random
-from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
 import openai
-import pandas as pd
 import tiktoken
 from openai import OpenAI
 from sklearn.metrics import classification_report
@@ -13,6 +10,7 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 from src import paths
+from src import prompts
 from src.utils.logger import logger
 
 tqdm.pandas()
@@ -20,7 +18,36 @@ tqdm.pandas()
 client = OpenAI(
     api_key=os.environ['OPENAI_API_KEY'],  # this is also the default, it can be omitted
 )
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
 
+# Create DataFrame
+np.random.seed(0)
+categories = ["attempt", "indicator", "behaviour", "ideation"]
+
+
+def plot_confusion_matrix(df, scale: float = 1, file_path: str = None):
+    # Golden ratio
+    phi = (1 + 5 ** 0.5) / 2
+    width = scale * 10
+    height = width / phi
+
+    categories = list(set(df['post_risk'].to_list()))
+
+    cm = confusion_matrix(df['post_risk'], df['pred'], labels=categories)
+    plt.figure(figsize=(width, height))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=categories, yticklabels=categories)
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    if file_path:
+        plt.savefig(file_path, dpi=300, bbox_inches='tight')
+
+
+# Plot confusion matrix with scaling
 
 class Models(Enum):
     gpt_35_turbo_0125 = "gpt-3.5-turbo-0125"
@@ -31,7 +58,6 @@ class Models(Enum):
     gpt_4_0613 = "gpt-4-0613"
     gpt_4_mini = "gpt-4o-mini"
     gpt_4_turbo = "gpt-4-turbo"
-
 
 
 import re
@@ -93,18 +119,7 @@ class PromptRefiner:
         return df
 
 
-def prompt_engineering(data: pd.DataFrame, client, output_file_path: Path, model_name: Models):
-    system_settings = """
-    Based on the social media post provided in the user prompt, return the category that the post belongs to based on 
-    the following four categories and their definitions.
-    'indicator': The post content has no explicit expression concerning suicide.
-    'ideation': The post content has explicit suicidal expression, but there is no plan to commit suicide.
-    'behaviour': The post content has explicit suicidal expression and a plan to commit suicide or self-harming behaviours.
-    'attempt': The post content has explicit expressions concerning historic suicide attempts. 
-    
-    i.e. you answer should be one of 'indicator', 'ideation', 'behaviour', 'attempt'    
-    """
-
+def prompt_engineering(data: pd.DataFrame, client, output_file_path: Path, model_name: Models, system_prompt: str):
     posts = data.reset_index(names="original_index")
 
     responses = dict()
@@ -113,7 +128,7 @@ def prompt_engineering(data: pd.DataFrame, client, output_file_path: Path, model
         try:
             response = client.chat.completions.create(
                 model=model_name.value,
-                messages=[{"role": "system", "content": system_settings},
+                messages=[{"role": "system", "content": system_prompt},
                           {"role": "user", "content": post}],
                 temperature=1,
                 n=1,
@@ -141,59 +156,6 @@ def prompt_engineering(data: pd.DataFrame, client, output_file_path: Path, model
     return posts
 
 
-def create_new_posts(data: pd.DataFrame, client) -> pd.DataFrame:
-    collector = dict()
-
-    @dataclass
-    class Post:
-        index: int
-        post: str
-        post_risk: str
-        new_posts: list[str] | None = None
-
-    progress_bar = tqdm(data.iterrows(), total=data.shape[0])
-    for index, row in progress_bar:
-        progress_bar.set_postfix(index=index)
-        post = row['post']
-        post_risk = row['post_risk']
-
-        user_msg = f"{post}"
-        num_tokens = approximate_token_count(user_msg)
-        try:
-            response = client.chat.completions.create(
-                model=Models.gpt_4_0613.value,
-                messages=[{"role": "system",
-                           "content": "You are an expert at rephrasing text while maintaining the original meaning and tonality. I have a set of of depressed/suicical reddit posts that I need to rephrase. Ensure that the rephrased text retains the same sentiment, style, and tone as the original"},
-                          {"role": "user", "content": user_msg}],
-                temperature=1,
-                n=10,
-                frequency_penalty=0.5,
-                max_tokens=int(random.uniform(0.75, 1.25) * num_tokens)
-            )
-
-            generated_posts = [choice.message.content for choice in response.choices]
-        except Exception as e:
-            logger.error(f"Unexpected Error in {index}: \n{e}")
-            generated_posts = []
-
-        collector[index] = Post(index, post, post_risk, generated_posts)
-
-    new_posts_df_list: list[pd.DataFrame] = []
-
-    for index, value in collector.items():
-        if value.new_posts:
-            new_posts_df = pd.DataFrame({
-                'post': value.new_posts,
-                'post_risk': [value.post_risk] * len(value.new_posts)}
-            )
-
-            new_posts_df_list.append(new_posts_df)
-
-    new_posts = pd.concat(new_posts_df_list)
-
-    return new_posts
-
-
 def get_embedding(client: OpenAI, text: str, model="text-embedding-3-large"):
     try:
         text = text.replace("\n", " ")
@@ -208,8 +170,9 @@ def create_embeddings(data: pd.DataFrame, client: OpenAI, file_name: str):
     logger.info(f"Writing to {file_path}")
     data.to_parquet(file_path)
 
+
 def find_substring(input_string):
-    string_set =['indicator', 'behaviour', 'behavior', 'attempt', 'ideation']
+    string_set = ['indicator', 'behaviour', 'behavior', 'attempt', 'ideation']
     for s in string_set:
         if s in input_string:
             return s
@@ -219,8 +182,9 @@ def find_substring(input_string):
 def analyse_result(df: pd.DataFrame):
     labels = list(set(df['post_risk'].to_list()))
     df['pred_original'] = [x for x in df['pred'].values]
+    df['pred'] = df['pred'].str.lower()
     df['pred'] = df['pred'].str.replace(r'[^a-zA-Z0-9]', '', regex=True)
-    df['pred'] = df['pred'].apply(find_substring)
+    # df['pred'] = df['pred'].apply(find_substring)
 
     replacements = {'behaviour': 'behavior',
                     ",": "",
@@ -230,7 +194,12 @@ def analyse_result(df: pd.DataFrame):
     pred_labels = list(set(df['pred'].to_list()))
     unknowns = [label for label in pred_labels if label not in labels]
 
+    df['differs'] = df['pred'] != df['post_risk']
+    difering = df[df['differs']]
+    difering.to_excel("no_implicatsion.xlsx")
     print(classification_report(df['post_risk'], df["pred"], labels=labels))
+
+    plot_confusion_matrix(difering, scale=0.7, file_path=paths.INTERMEDIATE_DATA_PATH / "confusion_matrix.png")
 
 
 if __name__ == "__main__":
@@ -240,7 +209,13 @@ if __name__ == "__main__":
 
     model_name = Models.gpt_4_turbo
 
-    output_file_path = Path(paths.INTERMEDIATE_DATA_PATH / f"jannics_data5_{model_name.value}_30_.parquet")
+    prompt_fac = {'current_best': prompts.CURRENT_BEST,
+                  'no_implication': prompts.NO_IMPLICATION,
+                  'fxd': prompts.NO_IMPLICATION_SPELLING_FIXED}
+
+    prompt = 'fxd'
+
+    output_file_path = Path(paths.INTERMEDIATE_DATA_PATH / f"jannics_data5_{model_name.value}_{prompt}.parquet")
 
     data, _ = train_test_split(data, test_size=0.6, random_state=42, stratify=data["post_risk"])
     try:
@@ -250,6 +225,7 @@ if __name__ == "__main__":
             data=data,
             client=client,
             output_file_path=output_file_path,
-            model_name=model_name)
+            model_name=model_name,
+            system_prompt=prompt_fac[prompt])
 
     analyse_result(df)
