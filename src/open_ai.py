@@ -58,6 +58,7 @@ class Models(Enum):
     gpt_4_0613 = "gpt-4-0613"
     gpt_4_mini = "gpt-4o-mini"
     gpt_4_turbo = "gpt-4-turbo"
+    gpt_4o = 'gpt-4o'
 
 
 import re
@@ -179,8 +180,8 @@ def find_substring(input_string):
     return None
 
 
-def analyse_result(df: pd.DataFrame):
-    labels = list(set(df['post_risk'].to_list()))
+def clean_result(df: pd.DataFrame):
+    labels = ['indicator', 'behavior', 'attempt', 'ideation']
     df['pred_original'] = [x for x in df['pred'].values]
     df['pred'] = df['pred'].str.lower()
     df['pred'] = df['pred'].str.replace(r'[^a-zA-Z0-9]', '', regex=True)
@@ -193,13 +194,38 @@ def analyse_result(df: pd.DataFrame):
     df['pred'] = df['pred'].replace(replacements)
     pred_labels = list(set(df['pred'].to_list()))
     unknowns = [label for label in pred_labels if label not in labels]
+    if unknowns:
+        raise RuntimeError(f"There are unknown labels: {unknowns}")
+    return df
 
+
+def analyze_results(df: pd.DataFrame) -> None:
+    labels = ['indicator', 'behavior', 'attempt', 'ideation']
     df['differs'] = df['pred'] != df['post_risk']
     difering = df[df['differs']]
     difering.to_excel("no_implicatsion.xlsx")
     print(classification_report(df['post_risk'], df["pred"], labels=labels))
 
     plot_confusion_matrix(difering, scale=0.7, file_path=paths.INTERMEDIATE_DATA_PATH / "confusion_matrix.png")
+
+
+def add_probs(df: pd.DataFrame) -> pd.DataFrame:
+    df.head()
+
+    def add_prob(category: str) -> list[int]:
+        match category:
+            case "indicator":
+                return [1, 0, 0, 0]
+            case "ideation":
+                return [0, 1, 0, 0]
+            case "behavior":
+                return [0, 0, 1, 0]
+            case "attempt":
+                return [0, 0, 0, 1]
+
+    df['probs'] = df['pred'].apply(add_prob)
+
+    return df
 
 
 if __name__ == "__main__":
@@ -209,23 +235,56 @@ if __name__ == "__main__":
 
     model_name = Models.gpt_4_turbo
 
-    prompt_fac = {'current_best': prompts.CURRENT_BEST,
-                  'no_implication': prompts.NO_IMPLICATION,
-                  'fxd': prompts.NO_IMPLICATION_SPELLING_FIXED}
+    prompt_fac = {
+        'current_best': prompts.CURRENT_BEST,
+        'no_implication': prompts.NO_IMPLICATION,
+        'fxd': prompts.NO_IMPLICATION_SPELLING_FIXED,
+        'fxd_more': prompts.NO_IMPLICATION_SPELLING_FIXED_MORE
+    }
 
-    prompt = 'fxd'
+
+
+    prompt = 'fxd_more'
 
     output_file_path = Path(paths.INTERMEDIATE_DATA_PATH / f"jannics_data5_{model_name.value}_{prompt}.parquet")
+    training = False
 
-    data, _ = train_test_split(data, test_size=0.6, random_state=42, stratify=data["post_risk"])
-    try:
-        df = pd.read_parquet(output_file_path)
-    except FileNotFoundError:
-        df = prompt_engineering(
-            data=data,
-            client=client,
-            output_file_path=output_file_path,
-            model_name=model_name,
-            system_prompt=prompt_fac[prompt])
+    if training:
+        data, _ = train_test_split(data, test_size=0.6, random_state=42, stratify=data["post_risk"])
+        try:
+            df = pd.read_parquet(output_file_path)
+        except FileNotFoundError:
+            df = prompt_engineering(
+                data=data,
+                client=client,
+                output_file_path=output_file_path,
+                model_name=model_name,
+                system_prompt=prompt_fac[prompt])
 
-    analyse_result(df)
+        df = clean_result(df)
+        analyze_results(df)
+
+    holdout_sub = True
+
+    if holdout_sub:
+        output_file_path = Path(
+            paths.INTERMEDIATE_DATA_PATH / f"jannics_data5_{model_name.value}_{prompt}_holdout_new.parquet")
+
+        holdout_data = DataReader.get_test_set()
+        try:
+            df = pd.read_parquet(output_file_path)
+        except FileNotFoundError:
+            df = prompt_engineering(
+                data=holdout_data,
+                client=client,
+                output_file_path=output_file_path,
+                model_name=model_name,
+                system_prompt=prompt_fac[prompt])
+
+        df = clean_result(df)
+        df = add_probs(df)
+        submission_file = paths.DATA_PATH / "Calculators.xlsx"
+        df.filter(['pred', 'probs']).rename(columns={
+            'pred': 'suicide risk',
+            'probs': 'probability distribution'
+        }).to_excel(submission_file, index=True, index_label="index")

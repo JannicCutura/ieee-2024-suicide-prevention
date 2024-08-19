@@ -91,7 +91,7 @@ class DataPreprocessor:
         logger.info("Preprocesssing data")
         df = cls._clean_text(df)
         df = cls._count_words(df)
-        df = cls._convert_to_one_token_answer(df)
+        #df = cls._convert_to_one_token_answer(df)
         return df
 
     @classmethod
