@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from src import paths
 from src import prompts
+from src.data_preprocessor import DataPreprocessor
 from src.utils.logger import logger
 
 tqdm.pandas()
@@ -35,12 +36,13 @@ def plot_confusion_matrix(df, scale: float = 1, file_path: str = None):
     width = scale * 10
     height = width / phi
 
-    categories = list(set(df['post_risk'].to_list()))
+    categories = ['indicator',  'ideation', 'behavior', 'attempt',]
 
     cm = confusion_matrix(df['post_risk'], df['pred'], labels=categories)
     plt.figure(figsize=(width, height))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=categories, yticklabels=categories)
+                xticklabels=categories, yticklabels=categories,
+                )
     plt.xlabel('Predicted')
     plt.ylabel('True')
     if file_path:
@@ -59,6 +61,7 @@ class Models(Enum):
     gpt_4_mini = "gpt-4o-mini"
     gpt_4_turbo = "gpt-4-turbo"
     gpt_4o = 'gpt-4o'
+
 
 
 import re
@@ -131,7 +134,7 @@ def prompt_engineering(data: pd.DataFrame, client, output_file_path: Path, model
                 model=model_name.value,
                 messages=[{"role": "system", "content": system_prompt},
                           {"role": "user", "content": post}],
-                temperature=1,
+                temperature=0,
                 n=1,
                 max_tokens=50
             )
@@ -206,7 +209,7 @@ def analyze_results(df: pd.DataFrame) -> None:
     difering.to_excel("no_implicatsion.xlsx")
     print(classification_report(df['post_risk'], df["pred"], labels=labels))
 
-    plot_confusion_matrix(difering, scale=0.7, file_path=paths.INTERMEDIATE_DATA_PATH / "confusion_matrix.png")
+    plot_confusion_matrix(df, scale=0.7, file_path=paths.INTERMEDIATE_DATA_PATH / "confusion_matrix.png")
 
 
 def add_probs(df: pd.DataFrame) -> pd.DataFrame:
@@ -239,18 +242,23 @@ if __name__ == "__main__":
         'current_best': prompts.CURRENT_BEST,
         'no_implication': prompts.NO_IMPLICATION,
         'fxd': prompts.NO_IMPLICATION_SPELLING_FIXED,
-        'fxd_more': prompts.NO_IMPLICATION_SPELLING_FIXED_MORE
+        'fxd_more': prompts.NO_IMPLICATION_SPELLING_FIXED_MORE,
+        'last_attempt': prompts.LAST_ATTEMPT
     }
+    prompt = 'last_attempt'
 
+    preprocesss = ""   #"preprocessed"
 
-
-    prompt = 'fxd_more'
-
-    output_file_path = Path(paths.INTERMEDIATE_DATA_PATH / f"jannics_data5_{model_name.value}_{prompt}.parquet")
-    training = False
+    if preprocesss:
+        DataPreprocessor.preprocess(data)
+    fullset = "full"
+    output_file_path = Path(
+        paths.INTERMEDIATE_DATA_PATH / f"jannics_data5_{model_name.value}_{prompt}_{preprocesss}{fullset}.parquet")
+    training = True
 
     if training:
-        data, _ = train_test_split(data, test_size=0.6, random_state=42, stratify=data["post_risk"])
+        if not fullset:
+            data, _ = train_test_split(data, test_size=0.6, random_state=42, stratify=data["post_risk"])
         try:
             df = pd.read_parquet(output_file_path)
         except FileNotFoundError:
@@ -268,7 +276,7 @@ if __name__ == "__main__":
 
     if holdout_sub:
         output_file_path = Path(
-            paths.INTERMEDIATE_DATA_PATH / f"jannics_data5_{model_name.value}_{prompt}_holdout_new.parquet")
+            paths.INTERMEDIATE_DATA_PATH / f"jannics_data5_{model_name.value}_{prompt}_{preprocesss}_holdout_new.parquet")
 
         holdout_data = DataReader.get_test_set()
         try:

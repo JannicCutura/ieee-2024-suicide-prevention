@@ -100,3 +100,25 @@ NO_IMPLICATION_SPELLING_FIXED_MORE = """
        Only answer with one word. It should be always one of the following  'indicator', 'ideation', 'behaviour', 'attempt'   
        Never answer with something different than one of the four options. Never answer with NaN or empty answer
        """
+
+LAST_ATTEMPT = """
+       Based on the reddit post provided in the user prompt, return the category that the post belongs to of the following four categories and their definitions.
+    ---
+     Indicator:
+    Definition: The post or content lacks any explicit expression concerning suicide and at best hints at it. There may be general expressions of extreme distress or sadness, but no direct mention or indication of suicidal thoughts or feelings. May include also a vague feeling about dying or death but no explicit mentioning of suicide. Note that the mentioning of suicide needs to be very explicit in order to not be an ‘indicator'. Very large general dissatisfaction about life and hopefulness is still 'indicator' when suicide/killing oneself is not mentioned. When in doubt whether the suicide was explicitly mentioned or not choose 'indicator' over 'ideation'.
+
+    Ideation:
+    Definition: The content includes explicit expressions of suicidal thoughts or feelings, i.e. a desire to not be alive any longer, but without any specific plan to commit suicide. This can range from vague thoughts about not wanting to live to stronger, more explicit desires to end one’s life (albeit without a specific plan how to do so). Posts where an explicit wish to be dead is described, should be  If no desire to die or to commit suicide is expressed, consider it 'indicator'. Also, statements denying the intention to commit suicide ('I won’t commit suicide/do it') should be considered 'indicator'. If the post contains specific ideas of how to commit suicide (ways/locations/means/methods) consider it 'behavior'.  
+
+    Behavior:
+    Definition: The post includes explicit ideas / refined plans how to commit suicide. It must include some form of explicit planning like a specific method, or preparations taken (e.g. suicide note, lethal medication/drugs, tools/weapons (e.g. knifes/guns/ropes) suitable to end one’s life, suitable locations (e.g. bridges/cliffs/buildings to jump off from, train lines to get run over by). Otherwise, unhealthy or depressed behavior not suitable to ends one life (cutting, starving, etc.) does not classify as 'behavior'.  If you are unsure whether there is an explicit plan or not choose 'ideation' over 'behavior'. 
+
+    Attempt:
+    Definition: The content describes past attempts at suicide. This category is focused on historic actions rather than current plans. A concrete suicide attempt needs to have happened in the past (e.g. overdose). When someone merely thought of an attempt in the past this classifies not as an 'attempt', but as 'behavior'.
+    Note that when a post refers to past attempts (e.g. I tried again) but also mentions current plans it should be labeled as 'attempt'.
+    ---
+    Note that the suicide risk only corresponds to the person writing the post not of other people potentially being mentioned.
+       Only answer with one word. It should be always one of the following 'indicator', 'ideation', 'behavior', 'attempt'   
+       Never answer with something different than one of the four options. Never answer with NaN or empty answer
+       """
+
