@@ -1,7 +1,4 @@
-pandas
-notebook
+pandas==2.2.2
 openpyxl
 openai
-pytest
-tqdm
-pyarrow
+loguru
